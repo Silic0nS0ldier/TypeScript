@@ -1257,12 +1257,24 @@ namespace ts {
             conditions: features & NodeResolutionFeatures.EsmMode ? ["node", "import", "types"] : ["node", "require", "types"]
         };
 
+        // this branch
         const result = forEach(extensions, ext => tryResolve(ext));
         return createResolvedModuleWithFailedLookupLocations(result?.value?.resolved, result?.value?.isExternalLibraryImport, failedLookupLocations, state.resultFromCache);
 
+        // this is used
         function tryResolve(extensions: Extensions): SearchResult<{ resolved: Resolved, isExternalLibraryImport: boolean }> {
-            const loader: ResolutionKindSpecificLoader = (extensions, candidate, onlyRecordFailures, state) => nodeLoadModuleByRelativeName(extensions, candidate, onlyRecordFailures, state, /*considerPackageJson*/ true);
-            const resolved = tryLoadModuleUsingOptionalResolutionSettings(extensions, moduleName, containingDirectory, loader, state);
+            // here
+            const loader: ResolutionKindSpecificLoader = (extensions, candidate, onlyRecordFailures, state
+                // here
+                ) => nodeLoadModuleByRelativeName(extensions, candidate, onlyRecordFailures, state, /*considerPackageJson*/ true);
+            const resolved = tryLoadModuleUsingOptionalResolutionSettings(
+                extensions,
+                moduleName,
+                containingDirectory,
+                // here
+                loader,
+                state,
+            );
             if (resolved) {
                 return toSearchResult({ resolved, isExternalLibraryImport: pathContainsNodeModules(resolved.path) });
             }
@@ -1393,7 +1405,7 @@ namespace ts {
      * @param {boolean} onlyRecordFailures - if true then function won't try to actually load files but instead record all attempts as failures. This flag is necessary
      * in cases when we know upfront that all load attempts will fail (because containing folder does not exists) however we still need to record all failed lookup locations.
      */
-    function loadModuleFromFile(extensions: Extensions, candidate: string, onlyRecordFailures: boolean, state: ModuleResolutionState): PathAndExtension | undefined {
+    function loadModuleFromFile(extensions: Extensions, candidate: string, onlyRecordFailures: boolean, state: ModuleResolutionState, override: boolean = false): PathAndExtension | undefined {
         if (extensions === Extensions.Json || extensions === Extensions.TSConfig) {
             const extensionLess = tryRemoveExtension(candidate, Extension.Json);
             const extension = extensionLess ? candidate.substring(extensionLess.length) : "";
@@ -1401,7 +1413,8 @@ namespace ts {
         }
 
         // esm mode resolutions don't include automatic extension lookup (without additional flags, at least)
-        if (!(state.features & NodeResolutionFeatures.EsmMode)) {
+        // flagged, part of problem
+        if (!(state.features & NodeResolutionFeatures.EsmMode) || override) {
             // First, try adding an extension. An import of "foo" could be matched by a file "foo.ts", or "foo.js" by "foo.js.ts"
             const resolvedByAddingExtension = tryAddingExtensions(candidate, extensions, "", onlyRecordFailures, state);
             if (resolvedByAddingExtension) {
@@ -1612,6 +1625,8 @@ namespace ts {
         }
     }
 
+    // this branch
+    // error lives here
     function loadNodeModuleFromDirectoryWorker(extensions: Extensions, candidate: string, onlyRecordFailures: boolean, state: ModuleResolutionState, jsonContent: PackageJsonPathFields | undefined, versionPaths: VersionPaths | undefined): PathAndExtension | undefined {
         let packageFile: string | undefined;
         if (jsonContent) {
@@ -1621,6 +1636,7 @@ namespace ts {
                     packageFile = readPackageJsonMainField(jsonContent, candidate, state);
                     break;
                 case Extensions.TypeScript:
+                    // this
                     // When resolving typescript modules, try resolving using main field as well
                     packageFile = readPackageJsonTypesFields(jsonContent, candidate, state) || readPackageJsonMainField(jsonContent, candidate, state);
                     break;
@@ -1634,6 +1650,12 @@ namespace ts {
                     return Debug.assertNever(extensions);
             }
         }
+
+        // esm mode and package.json determine what gets returned, and if a file extension is needed
+        // do esm modules turn up here?
+
+        //console.log(jsonContent);
+        //console.log(extensions);
 
         const loader: ResolutionKindSpecificLoader = (extensions, candidate, onlyRecordFailures, state) => {
             const fromFile = tryFile(candidate, onlyRecordFailures, state);
@@ -1657,6 +1679,7 @@ namespace ts {
         const onlyRecordFailuresForIndex = onlyRecordFailures || !directoryProbablyExists(candidate, state.host);
         const indexPath = combinePaths(candidate, extensions === Extensions.TSConfig ? "tsconfig" : "index");
 
+        // not this branch
         if (versionPaths && (!packageFile || containsPath(candidate, packageFile))) {
             const moduleName = getRelativePathFromDirectory(candidate, packageFile || indexPath, /*ignoreCase*/ false);
             if (state.traceEnabled) {
@@ -1669,13 +1692,13 @@ namespace ts {
         }
 
         // It won't have a `packageId` set, because we disabled `considerPackageJson`.
+        // not this branch, but should it be?
         const packageFileResult = packageFile && removeIgnoredPackageId(loader(extensions, packageFile, onlyRecordFailuresForPackageFile!, state));
         if (packageFileResult) return packageFileResult;
 
         // esm mode resolutions don't do package `index` lookups
-        if (!(state.features & NodeResolutionFeatures.EsmMode)) {
-            return loadModuleFromFile(extensions, indexPath, onlyRecordFailuresForIndex, state);
-        }
+        // TODO Depending on package content, yes we want file extension resolving.
+        return loadModuleFromFile(extensions, indexPath, onlyRecordFailuresForIndex, state, true);
     }
 
     /** Resolve from an arbitrarily specified file. Return `undefined` if it has an unsupported extension. */
@@ -1960,6 +1983,7 @@ namespace ts {
         });
     }
 
+    // this is used
     function loadModuleFromImmediateNodeModulesDirectory(extensions: Extensions, moduleName: string, directory: string, state: ModuleResolutionState, typesScopeOnly: boolean, cache: ModuleResolutionCache | undefined, redirectedReference: ResolvedProjectReference | undefined): Resolved | undefined {
         const nodeModulesFolder = combinePaths(directory, "node_modules");
         const nodeModulesFolderExists = directoryProbablyExists(nodeModulesFolder, state.host);
@@ -2010,15 +2034,19 @@ namespace ts {
         }
 
         const { packageName, rest } = parsePackageName(moduleName);
+        // this is used
         const loader: ResolutionKindSpecificLoader = (extensions, candidate, onlyRecordFailures, state) => {
             // package exports are higher priority than file/directory lookups (and, if there's exports present, blocks them)
             if (packageInfo && packageInfo.packageJsonContent.exports && state.features & NodeResolutionFeatures.Exports) {
                 return loadModuleFromExports(packageInfo, extensions, combinePaths(".", rest), state, cache, redirectedReference)?.value;
             }
+            // this branch
+            //console.log('candidate', candidate);
             const pathAndExtension =
                 loadModuleFromFile(extensions, candidate, onlyRecordFailures, state) ||
+                // this branch
                 loadNodeModuleFromDirectoryWorker(
-                    extensions,
+                    extensions,// this is nothing?
                     candidate,
                     onlyRecordFailures,
                     state,
